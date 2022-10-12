@@ -1,0 +1,22 @@
+---
+title: "code de base"
+author: "Clara Baudry"
+date: "2022-10-12"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(questionr)
+```
+
+```{r}
+setwd("~/Ensai/3A/méthode d'évaluation d'impact/projet/données")
+données <- read_dta("DATA Dataverse Opioids.dta")
+View(DATA_Dataverse_Opioids)
+```
+
+```{r}
+describe(données)
+```
+
