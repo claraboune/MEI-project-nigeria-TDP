@@ -11,12 +11,19 @@ library(questionr)
 ```
 
 ```{r}
-setwd("~/Ensai/3A/méthode d'évaluation d'impact/projet/données")
-données <- read_dta("DATA Dataverse Opioids.dta")
-View(DATA_Dataverse_Opioids)
+library(haven)
+donnees <- read_dta("donnees zika/zika_Table2.dta")
+View(donnees)
 ```
 
 ```{r}
-describe(données)
+describe(donnees)
+summary(donnees)
 ```
+
+On a 51 variables.
+
+
+
+
 
