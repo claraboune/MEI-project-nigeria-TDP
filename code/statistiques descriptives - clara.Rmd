@@ -1,0 +1,81 @@
+---
+title: "Statistiques descriptives - clara"
+author: "Clara Baudry"
+date: "2022-10-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+
+Pour décider de notre variable outcome on peut comparer le nombre de valeurs manquantes dans chauqe variable outcome potentielle.
+```{r}
+sum(is.na(donnees_full$n_rawscore_lit))
+sum(is.na(donnees_full$n_rawscore_num))
+sum(is.na(donnees_full$n_rawscore_sci))
+```
+
+```{r}
+boxplot(donnees_2014$n_rawscore_lit~donnees_2014$treatment)
+boxplot(donnees_2017$n_rawscore_lit~donnees_2017$treatment)
+
+boxplot(donnees_2014$n_rawscore_num~donnees_2014$treatment)
+boxplot(donnees_2017$n_rawscore_num~donnees_2017$treatment)
+
+boxplot(donnees_2014$n_rawscore_sci~donnees_2014$treatment)
+boxplot(donnees_2017$n_rawscore_sci~donnees_2017$treatment)
+```
+
+Choisissons le score en literacy (pas de raison pour cela, il faut juste en choisir un).
+
+On regarde le nombre d'individus dans chaque groupe
+```{r}
+table(donnees_2014$treatment,useNA = "always")
+table(donnees_2017$treatment,useNA = "always")
+table(donnees_full$treatment,useNA = "always")
+```
+On remarque qu'il y a 4 individus qui passent du groupe traité au groupe de contrôle à la seconde période.
+En ignorant cette information on peut dire que globalement il y a 1268 élèves dans le groupe de contrôle et 1307 dans le groupe de traitement. Les groupes sont donc plutôt équilibrés.
+
+```{r}
+sum(is.na(donnees_2014$n_rawscore_lit))
+sum(is.na(donnees_2017$n_rawscore_lit))
+sum(is.na(donnees_full$n_rawscore_lit))
+```
+On voit qu'il ne manque aucune données au niveau de l'output en 2014 mais il manque 1008 scores en 2017, ce qui est énorme puisqu'il s'agit de près de la motié de l'échantillon . On a donc un problème d'attrition. Dans un premier temps on va simplement étudier ces données en retirant les lignes avec les données manquantes. Il faut tout de même faire attention car cela peut introduire un biais d'attrition => y revenir plus tard et pq pas proposer une méthode qui prend en compte les cara observables et inobservables!!!
+
+```{r}
+sansNA_2017 <- donnees_2017 %>% drop_na(n_rawscore_lit)
+
+sansNA_full <- donnees_full %>% drop_na(n_rawscore_lit) %>% group_by(id) %>% filter(n()==2)
+```
+Ca fonctionne bien car on avait 1567 observations une fois les NA enlevés en 2017 et on en a 3134 (i.e. 2*1567) quand on ajoute 2014 à la base. Donc a supprimé tous les individus qui n'ont pas de score en deuxième période.
+
+On regarde les deux vagues d'enquêtes séparément
+```{r}
+boxplot(donnees_2014$n_rawscore_lit~donnees_2014$treatment)
+boxplot(donnees_2017$n_rawscore_lit~donnees_2017$treatment)
+```
+
+Il semble que le scores augmentent de la même façon dans les deux groupes. En moyenne, le groupe traité n'a pas de meilleure notes suite au traitement. Même si on peut voir que le 3e quantile est légèrement plus élevé.
+
+
+```{r}
+table <- donnees_full %>% group_by(surveywave, treatment) %>% 
+  summarise(mean(n_rawscore_lit,na.rm=T))
+table
+
+table2 <- sansNA_full %>% group_by(surveywave, treatment) %>% 
+  summarise(mean(n_rawscore_lit,na.rm=T))
+table2
+```
+On voit aussi ici (en enlevant les données manquantes) qu'il semble que tous les élèves aient atteitn de meilleurs scores qu'ils soient dans le groupe traité ou non.
+
+De plus, on voit que quand on enlève les résultats des élèves qui n'ont pas de score à la deuxième vague la moyenne dans chacun des groupes augmente. On peut donc penser que les élèves qui partent de l'enquêtes ne sont pas de très bons élèves.
