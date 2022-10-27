@@ -1,0 +1,133 @@
+---
+title: "Matching - clara"
+author: "Clara Baudry"
+date: "2022-10-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(MatchIt)
+library(Matching)
+```
+
+
+# 1. Restriction de la base de données en gardant uniquement les observations pour la période après le traitement
+On définit la période après le traitement comme la période à partir de laquelle les Etats ne changent plus de groupe de traitement. 
+
+Je garde après tous les changements faits. Je coupe aussi de l'autre côte dès que le premier Etat décide d'interdire la peine de mort.
+
+# 2. Calcul du score de propension
+Hypothèse : conditionnellement à un certain ensemble de variables X, le fait d'être "traité" est aléatoire (ou tout du moins indépendant  de la variable  résultat).
+
+```{r}
+sum(is.na(sansNA_2017$treatment))
+sum(is.na(sansNA_2017$Sex))
+sum(is.na(sansNA_2017$Age))
+sum(is.na(sansNA_2017$id_state))
+```
+Il y a une observation pour laquelle le sexe et l'âge ne sont pas renseignés. On supprime donc cette observation (id 2439).
+
+```{r}
+sansNA_2017 <- subset(sansNA_2017, is.na(Age) == F)
+ps <- glm(treatment ~ Sex + Age +  id_state , family = binomial(), data=sansNA_2017)
+summary(ps)
+exp(coef(ps)) # odd ratio
+```
+
+Pour attacher les scores de propension au dataframe (et effectuer les graphiques souhaités) récupération des probabilités : chaque individu a une proba estimée d'être traitée
+```{r}
+sansNA_2017$psvalue <- predict(ps, type = "response")
+```
+
+
+# Histogramme
+```{r}
+ggplot(sansNA_2017)+
+  geom_histogram(aes(psvalue, group=factor(treatment),col=factor(treatment)))
+
+ggplot(sansNA_2017, aes(psvalue)) + 
+  geom_histogram(data = subset(sansNA_2017,treatment == 1), fill = "red", alpha = 0.2) + 
+  geom_histogram(data = subset(sansNA_2017,treatment == 0), fill = "green", alpha = 0.2)
+
+ggplot()+
+  geom_density(aes(psvalue), data=sansNA_2017[sansNA_2017$treatment==0,], col="red")+
+  geom_density(aes(psvalue), data=sansNA_2017[sansNA_2017$treatment==1,], col="green")
+```
+
+# Appariemment avec les plus proches voisins near-neighbor
+```{r}
+library(MatchIt)
+m.nn <- matchit(treatment ~ Sex + Age +  id_state, data=sansNA_2017, method= "nearest",ratio=2)
+m.nn
+summary(m.nn)
+```
+
+
+# Extraction des données
+```{r}
+match.data = match.data(m.nn)
+```
+
+
+## Analyse avec un test de comparaison de moyenne (paired t-test) sauvegarde de la nouvelle base avec l'appariemment
+```{r}
+matches<-data.frame(m.nn$match.matrix) # 2colonnes de correspondance car ratio=2
+```
+
+
+# Correspondance dans les groupes traitement et contrôle  
+```{r}
+group.treat <- match(row.names(matches), row.names(match.data))
+group.control <- match(matches$X1, row.names(match.data))
+```
+
+Extraire la valeur de la variable outcome pour les 2 groupes controle et traitement
+```{r}
+yT<-match.data$work[group.treat]
+yC<-match.data$work[group.control]
+```
+
+
+# Effet du traitement : Paired t-test
+```{r}
+t.test(yT,yC, paired=TRUE)
+```
+
+# Ho: diff de moyenne =0
+
+
+
+### appariement avec Match ###
+```{r}
+library(Matching)
+app <- Match(Y=sansNA_2017$n_rawscore_lit, Tr= sansNA_2017$treatment, X= ps$fitted)
+summary(app) # effet du traitement sur les traités
+```
+
+
+# M=1 : each control observation is used once
+```{r}
+app1 <- Match(Y=sansNA_2017$work, Tr= sansNA_2017$treatment, X= ps$fitted, replace=F)
+summary(app1)
+```
+
+# Check balancing properties
+```{r}
+MatchBalance(treatment ~ Sex + Age +  id_state, match.out = app1, data=sansNA_2017)
+```
+
+# QQplot pour l'age des groupes traités et contrôle
+```{r}
+qqplot(sansNA_2017$Age[app1$index.control],sansNA_2017$Age[app1$index.treated])
+abline(coef = c(0,1), col=2)
+
+tt <- lm(n_rawscore_lit~Sex + Age +  id_state,sansNA_2017,weights = psvalue)
+summary(tt)
+```
+
+

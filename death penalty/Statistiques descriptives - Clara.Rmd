@@ -1,0 +1,223 @@
+---
+title: "Statistiques descriptives - Clara"
+author: "Clara Baudry"
+date: "2022-10-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(haven)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+death <- read_dta("~/Ensai/3A/méthode d'évaluation d'impact/MEI-project-opioids/death penalty/death.dta")
+```
+
+```{r}
+boxplot(death$pc_mur~death$legal)
+```
+
+```{r}
+donnees76 <- death %>% filter(year == 1976)
+donnees03 <- death %>% filter(year == 2003)
+boxplot(donnees76$pc_mur~donnees76$legal)
+boxplot(donnees03$pc_mur~donnees03$legal)
+```
+
+
+```{r}
+table <- death %>% group_by(year, legal) %>% 
+  summarise(mean(pc_mur,na.rm=T))
+table
+```
+
+Note la variable legal est codée comme suit :
+- legal = 1 la peine de mort est encore légal
+- legal = 0 la peine de mort est illégale
+
+Pour prendre l'exemple de 1960: les Etats pour lesquels la peine de mort est illégale le taux moyen de meurtres est de 3.71. Cette même année le taux moyen de meurtres dans les Etats où la peine de mort est légale est de 5.45. Il semble donc que les Etats ayant aboli la peine de mort ont moins de meurtres en moyenne que les Etats dans lesquels elle est légale. Mais pour l'instant nous ne pouvons pas en déduire quelconque causalité. 
+
+```{r}
+ggplot(death, aes(year, pc_mur))  + aes(colour = factor(legal)) + stat_summary(fun=mean, geom="line")
+```
+
+On étudie les possibles données manquantes
+```{r}
+library(ExPanDaR)
+prepare_missing_values_graph(death, ts_id = "year")
+```
+
+Il n'y a pas de données manquantes.
+
+```{r}
+ggplot(death, aes(x = year, y = state)) +
+  geom_raster(aes(fill=legal)) +
+  #scale_fill_brewer(palette = "OrRd", direction = -1) +
+  labs(x="Variables", y="Variables", title="insérer titre",
+       subtitle = "insérer sous-titre") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+Approche spatiale
+```{r}
+library(sf)
+library(mapsf)
+setwd("~/Ensai/3A/méthode d'évaluation d'impact/MEI-project-opioids/death penalty")
+
+fond_carte <- st_read("cb_2018_us_state_500k.shp")
+str(fond_carte)
+```
+
+```{r}
+plot(fond_carte["NAME"])
+plot(fond_carte$GEOID) # on voit qu'il y a plus d'Etats dans cette carte que dans notre base de données (jout des territoires) => on sélectionne que les Etats qui nous intéresse
+
+death_1975$stid <- as.character(death_1975$stid)
+# merge mes données et mon fond de carte
+carte_precise <- fond_carte %>% 
+  right_join(death_1975 %>% filter(year == "1976") %>% select(legal,stid), by=c("GEOID"="stid"))
+```
+
+```{r}
+mf_map(carte_precise, var="legal", type = "typo", border = F)
+```
+
+
+# Matching
+## 1. Restriction de la base de données en gardant uniquement les observations pour la période après le traitement 
+
+On fait le matching avec les données à partir de 1975. On garde uniquement les Etats qui ne font pas de changement après 1975.
+
+```{r}
+death_1975 <- death %>% filter(year > 1975)
+
+# on regarde quels Etats changent encore de politique après 1975
+etats_a_suppr <- death_1975 %>% 
+  group_by(state) %>%
+  summarize(chgt_ou_non=sum(legal)+1975) %>% 
+  filter(chgt_ou_non != 2003 & chgt_ou_non != 1975)
+# on enlève donc 12 Etats
+
+death_1975 <- death_1975 %>% filter(!(state %in% etats_a_suppr$state))
+```
+
+```{r}
+table(death_1975$legal)
+```
+
+
+## 2. Calcul du score de propension
+Hypothèse : conditionnellement à un certain ensemble de variables X, le fait d'être "traité" est aléatoire (ou tout du moins indépendant  de la variable  résultat) => hypothèse d'indépendance conditionnelle.
+
+
+```{r}
+essai1 <- glm(legal ~ robberyrate + forcibleraperate +  aggravatedassaultrate + propertycrimerate + burglaryrate + larcenytheftrate + motorvehicletheftrate, family = binomial(), data=death)
+summary(essai1)
+
+ps <- glm(legal ~ robberyrate +  aggravatedassaultrate, family = binomial(), data=death)
+summary(ps)
+exp(coef(ps)) # odd ratio
+```
+
+Pour attacher les scores de propension au dataframe (et effectuer les graphiques souhaités) récupération des probabilités : chaque individu a une proba estimée d'être traitée
+```{r}
+death$psvalue <- predict(ps, type = "response")
+```
+
+Le score de propension désigne la probabilité, pour une observation de caractéristiques données, d'être exposée à un traitement.
+
+Les méthodes d'appariement tentent de jumeler chaque individu traité avec un ou plusieurs individus non traités dont les caractéristiques observables sont les plus proches possible.
+
+## Histogramme
+```{r}
+ggplot(death)+
+  geom_histogram(aes(psvalue, group=factor(legal),col=factor(legal)))
+
+ggplot(death, aes(psvalue)) + 
+  geom_histogram(data = subset(death,legal == 1), fill = "red", alpha = 0.2) + 
+  geom_histogram(data = subset(death,legal == 0), fill = "green", alpha = 0.2)
+
+ggplot()+
+  geom_density(aes(psvalue), data=death[death$legal==0,], col="red")+
+  geom_density(aes(psvalue), data=death[death$legal==1,], col="green")
+```
+
+## Appariemment avec les plus proches voisins near-neighbor
+```{r}
+library(MatchIt)
+m.nn <- matchit(legal ~ robberyrate +  aggravatedassaultrate, data=death, method= "nearest",ratio=2)
+m.nn
+summary(m.nn)
+```
+
+
+## Extraction des données
+```{r}
+match.data = match.data(m.nn)
+```
+
+
+## Analyse avec un test de comparaison de moyenne (paired t-test) sauvegarde de la nouvelle base avec l'appariemment
+```{r}
+matches<-data.frame(m.nn$match.matrix) # 2colonnes de correspondance car ratio=2
+```
+
+
+## Correspondance dans les groupes traitement et contrôle  
+```{r}
+group.treat <- match(row.names(matches), row.names(match.data))
+group.control <- match(matches$X1, row.names(match.data))
+```
+
+Extraire la valeur de la variable outcome pour les 2 groupes controle et traitement
+```{r}
+yT<-match.data$work[group.treat]
+yC<-match.data$work[group.control]
+```
+
+
+## Effet du traitement : Paired t-test
+```{r}
+t.test(yT,yC, paired=TRUE)
+```
+
+H0: diff de moyenne =0
+
+
+
+## Appariement avec Match
+```{r}
+library(Matching)
+app <- Match(Y=death$pc_mur, Tr= death$legal, X= ps$fitted)
+summary(app) # effet du traitement sur les traités
+```
+
+
+## M=1 : each control observation is used once
+```{r}
+app1 <- Match(Y=death$work, Tr= death$legal, X= ps$fitted, replace=F)
+summary(app1)
+```
+
+## Check balancing properties
+```{r}
+MatchBalance(legal ~ robberyrate +  aggravatedassaultrate, match.out = app1, data=death)
+```
+
+## QQplot pour l'age des groupes traités et contrôle
+```{r}
+qqplot(death$Age[app1$index.control],death$Age[app1$index.treated])
+abline(coef = c(0,1), col=2)
+
+tt <- lm(n_rawscore_lit~Sex + Age +  id_state,death,weights = psvalue)
+summary(tt)
+```
+
+
+

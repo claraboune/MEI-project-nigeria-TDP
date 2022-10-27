@@ -1,0 +1,90 @@
+---
+title: "données nigeria"
+author: "Clara Baudry"
+date: "2022-10-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(dplyr)
+```
+
+
+```{r}
+eleves_2014 <- read_csv("~/Ensai/3A/méthode d'évaluation d'impact/MEI-project-opioids/autre/nigeria_2014/bl_v2_1_pt.csv")
+eleves_2017 <- read_csv("~/Ensai/3A/méthode d'évaluation d'impact/MEI-project-opioids/autre/nigeria_2017/el_v2_1_pupil.CSV")
+```
+
+On commence par garder uniquement les variables qui nous intéresse dans chaque dataset
+```{r}
+donnees_2014 <- eleves_2014 %>% 
+  select(surveywave,id_state,id_school,id_pupil,treatment,
+         pt003,pt004,n_rawscore_lit,n_rawscore_num,n_rawscore_sci) %>% 
+  rename(Sex=pt003,
+         Age=pt004) %>% 
+  mutate(surveywave = ifelse(surveywave == "Round 1 Baseline",1,0),
+         treatment = ifelse(treatment == "Treatment",1,0),
+         Age = ifelse(Age == "Missing",NA,Age))
+
+# on met la variable Age en numérique
+donnees_2014$Age <- as.numeric(donnees_2014$Age)
+
+# on crée un identifiant unique par individu
+id <- rownames(donnees_2014)
+donnees_2014 <- cbind(id=id, donnees_2014)
+
+donnees_2017 <- eleves_2017 %>% 
+  select(surveywave,state_id,school_id,pupil_id,treatment,
+         Sex,Age,n_E_raw_p,n_M_raw_p,n_S_raw_p) %>% 
+  # on renomme les variables de jointure comme celles de 2014
+  rename(id_school=school_id,
+         id_pupil=pupil_id,
+         n_rawscore_lit=n_E_raw_p,
+         n_rawscore_num=n_M_raw_p,
+         n_rawscore_sci=n_S_raw_p) %>% 
+  # on recode les variables pour qu'elles correspondent à 2014
+  mutate(id_state = case_when(state_id == 1 ~ "Jigawa",
+                              state_id == 2 ~ "Katsina",
+                              state_id == 3 ~ "Zamfara"),
+         Sex = ifelse(Sex == 1, "Boy", "Girl")) %>% 
+  # on supprime les varibles dont on a plus besoin
+  select(-state_id)
+
+# on ajoute l'identifiant unique
+id <- rownames(donnees_2017)
+donnees_2017 <- cbind(id=id, donnees_2017)
+
+# on empile les données pour avoir un unique datatset
+donnees_full <- rbind(donnees_2014,donnees_2017)
+```
+
+On vérifie qu'on a bien les mêmes données par individu
+```{r}
+ages <- full_join(donnees_2014,donnees_2017,by=c("id_pupil","id_school","id_state"))
+ages <- as.data.frame(ages)
+ages <- ages %>% select(Age.x,Age.y)
+```
+
+Certaines âge ssont codés en -8 lors de la deuxième vague. On les remplace donc par l'âge de l'année précédente +3 en se disant que ça s'approche de la réalité.
+```{r}
+donnees_full <- donnees_full %>% arrange(id) %>% 
+  group_by(id) %>% filter(n() == 2)
+
+donnees_full$Age_new <- donnees_full$Age
+for(i in 1:nrow(donnees_full)){
+  if(donnees_full$Age[i] == -8 & is.na(donnees_full$Age[i])==F){
+    donnees_full$Age_new[i] <- donnees_full$Age[i-1]+3
+  } 
+}
+```
+
+
+
+
+
+
