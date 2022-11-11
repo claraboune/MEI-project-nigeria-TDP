@@ -1,0 +1,112 @@
+---
+title: "Projet : UE3 Aide à la décision publique : Méthodes d’évaluation d’impact/ Etude de cas"
+author: "Clara Baudry, Ana Letort et Violette Marmion"
+date: "31 Octobre 2022"
+output: 
+  html_document:
+    code_folding: show
+    theme: united
+    highlight: tango
+    toc: true
+    toc_float: true
+  rmdformats::robobook:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+    code_folding: show
+---
+
+<style>body {text-align: justify}</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library, eval=TRUE, include=TRUE, results='hide', class.source = 'foldable'}
+# definition du repertoire
+getwd()
+setwd("~/Desktop/scolarité/M2 MAS/MEI/Projet")
+
+# definition des librairies dont on a besoin
+load_lib <- c("haven", "dplyr", "tidyr", "rAmCharts", "kableExtra", "knitr", "ggplot2", "MatchIt")
+
+# packages necessaires qui ne sont pas installes
+install_lib <- load_lib[!load_lib %in% installed.packages()] 
+# installation des packages manquants
+for (lib in install_lib) install.packages(lib,dependencies=TRUE) 
+# chargement des packages
+sapply(load_lib,require,character=TRUE)
+```
+
+Importation des donnees
+```{r, results='hide'}
+data <- read_dta("death.dta")
+```
+
+# Première méthode : Différence de différence
+
+On revoit la base de données pour cette méthode. On garde seulement les données allant de 1960 à 1972.
+```{r, results='hide'}
+year_double_diff <- 1960:1972
+data_double_diff <- data %>% filter(year %in% year_double_diff)
+```
+
+##### Tableau des différences (comparaison de moyennes)
+
+Nous allons faire le tableau à 4 cases pour la variable d’intérêt : *pc_mur*.
+
+Moyennes par temps et traitement
+```{r}
+tab <- aggregate(pc_mur ~ year + legal, 
+                 data = data_double_diff, 
+                 mean)
+# (D-C)-(B-A)
+(tab[4,3]-tab[3,3]) - (tab[2,3]-tab[1,3])
+
+## Pour la construction du tableau :
+# D
+tab[4,3]
+# C
+tab[3,3]
+# D - C
+tab[4,3]-tab[3,3]
+# B
+tab[2,3]
+# A
+tab[1,3]
+# B - A
+tab[2,3]-tab[1,3]
+```
+
+Tableaux Diff-in-diff : Estimateur avant-après, Estimateur en coupe
+```{r}
+library(data.table)
+setDT(df1v)
+
+# on recode la variable time 
+data_double_diff$year[data_double_diff$year <= 1966] <- "0"
+data_double_diff$year[data_double_diff$year > 1966] <- "1"
+
+dt1v <- dcast(data = data_double_diff, 
+              legal~year, 
+              value.var = "pc_mur",
+              mean)
+names(dt1v)
+setnames(dt1v, 
+         c("0","1"), 
+         c("Avant","Après"))
+dt1v$diffAvAP <- dt1v$Après - dt1v$Avant
+diffCoupe <- dt1v[2,] - dt1v[1,]
+```
+
+##### Effet du traitement : Régression Diff-in-diff
+```{r}
+dfdf <- lm(pc_mur ~ year*legal, 
+           data = data_double_diff)
+summary(dfdf)
+```
+
+
